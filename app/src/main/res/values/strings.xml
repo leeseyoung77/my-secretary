@@ -116,4 +116,9 @@
     <string name="update_downloading_title">업데이트 다운로드 중</string>
     <string name="update_downloading_message">v%1$s 받는 중...</string>
     <string name="update_downloading_notice">완료되면 설치 화면이 자동으로 나타납니다</string>
+    <string name="action_force_refresh_widget">위젯 즉시 갱신</string>
+    <string name="force_refresh_widget_description">위젯이 새 일정을 즉시 보여주지 않으면 이 버튼을 눌러 강제로 다시 그립니다.</string>
+    <string name="widget_refreshed_toast">위젯을 새로 그렸어요</string>
+    <string name="section_about">앱 정보</string>
+    <string name="app_version_label">버전 v%1$s</string>
 </resources>

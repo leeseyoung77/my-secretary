@@ -10,9 +10,13 @@ import com.luxboy.mysecretary.domain.model.Event
 import com.luxboy.mysecretary.domain.recurrence.RecurrenceExpander
 import com.luxboy.mysecretary.domain.recurrence.RecurrenceParser
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -26,6 +30,19 @@ class EventRepository @Inject constructor(
     private val alarmScheduler: AlarmScheduler,
     @ApplicationContext private val context: Context,
 ) {
+    /**
+     * Side-effect scope detached from any caller's lifecycle. The widget refresh after a CRUD
+     * was previously running inside the caller's viewModelScope, which gets cancelled when the
+     * edit screen pops on save — racing the refresh path and sometimes leaving the widget stale.
+     * This SupervisorJob keeps the refresh alive until it actually completes, regardless of UI
+     * navigation.
+     */
+    private val sideEffectScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private fun refreshWidgetDetached() {
+        sideEffectScope.launch { MySecretaryWidget.refresh(context) }
+    }
+
     fun observeAll(): Flow<List<Event>> =
         dao.observeAll().map { list -> list.map { it.toDomain() } }
 
@@ -134,13 +151,13 @@ class EventRepository @Inject constructor(
         val saved = event.copy(id = id)
         alarmScheduler.cancel(id)
         alarmScheduler.scheduleEventOrNextOccurrence(saved)
-        MySecretaryWidget.refresh(context)
+        refreshWidgetDetached()
         return id
     }
 
     suspend fun delete(id: Long) {
         alarmScheduler.cancel(id)
         dao.deleteById(id)
-        MySecretaryWidget.refresh(context)
+        refreshWidgetDetached()
     }
 }

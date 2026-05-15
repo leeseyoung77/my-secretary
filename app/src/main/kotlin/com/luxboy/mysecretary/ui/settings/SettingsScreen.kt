@@ -262,6 +262,23 @@ fun SettingsScreen(
                 onChangeFinished = viewModel::setWidgetOpacity,
             )
 
+            Text(
+                text = stringResource(R.string.force_refresh_widget_description),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedButton(
+                onClick = {
+                    viewModel.forceRefreshWidget()
+                    Toast.makeText(
+                        context,
+                        context.getString(R.string.widget_refreshed_toast),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(stringResource(R.string.action_force_refresh_widget)) }
+
             HorizontalDivider()
 
             Text(
@@ -413,6 +430,21 @@ fun SettingsScreen(
             if (state.isWorking) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             }
+
+            HorizontalDivider()
+
+            Text(
+                text = stringResource(R.string.section_about),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                text = stringResource(
+                    R.string.app_version_label,
+                    com.luxboy.mysecretary.BuildConfig.VERSION_NAME,
+                ),
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

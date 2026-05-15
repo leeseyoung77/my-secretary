@@ -107,6 +107,12 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun forceRefreshWidget() {
+        viewModelScope.launch {
+            MySecretaryWidget.refresh(context)
+        }
+    }
+
     suspend fun currentWakeWordEnabled(): Boolean = preferences.wakeWordEnabled.first()
 
     fun export(uri: Uri) {
