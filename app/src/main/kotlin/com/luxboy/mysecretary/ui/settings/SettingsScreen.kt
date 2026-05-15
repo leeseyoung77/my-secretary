@@ -81,6 +81,7 @@ fun SettingsScreen(
     val summaryViewEnabled by viewModel.summaryViewEnabled.collectAsStateWithLifecycle()
     val lunarDisplayEnabled by viewModel.lunarDisplayEnabled.collectAsStateWithLifecycle()
     val widgetOpacity by viewModel.widgetOpacity.collectAsStateWithLifecycle()
+    val widgetDiagnostic by viewModel.widgetDiagnostic.collectAsStateWithLifecycle()
     val voiceFeedbackEnabled by viewModel.voiceFeedbackEnabled.collectAsStateWithLifecycle()
     val soundFeedbackEnabled by viewModel.soundFeedbackEnabled.collectAsStateWithLifecycle()
     val selectionState by viewModel.selectionState.collectAsStateWithLifecycle()
@@ -268,16 +269,16 @@ fun SettingsScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             OutlinedButton(
-                onClick = {
-                    viewModel.forceRefreshWidget()
-                    Toast.makeText(
-                        context,
-                        context.getString(R.string.widget_refreshed_toast),
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                },
+                onClick = { viewModel.forceRefreshWidget() },
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(stringResource(R.string.action_force_refresh_widget)) }
+            widgetDiagnostic?.let { diag ->
+                Text(
+                    text = "▶ $diag",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
 
             HorizontalDivider()
 

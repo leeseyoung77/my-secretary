@@ -66,21 +66,31 @@ class MySecretaryWidget : GlanceAppWidget() {
          * by the system or cached by Glance: (1) explicit per-id update via GlanceAppWidgetManager
          * which is the most direct API contract, (2) Glance's updateAll convenience, (3) a manual
          * APPWIDGET_UPDATE broadcast as a final fallback.
+         *
+         * Returns a short diagnostic string describing what each path saw — used by the settings
+         * "force refresh" button so the user can report what's actually happening.
          */
-        suspend fun refresh(context: Context) {
+        suspend fun refresh(context: Context): String {
             val widget = MySecretaryWidget()
 
-            // (1) Direct per-id update — most reliable path; bypasses broadcast queues.
-            runCatching {
+            // (1) Direct per-id update via Glance's manager.
+            val r1 = runCatching {
                 val manager = GlanceAppWidgetManager(context)
                 val glanceIds = manager.getGlanceIds(MySecretaryWidget::class.java)
                 glanceIds.forEach { id -> widget.update(context, id) }
+                glanceIds.size
             }
+            val perIdLabel = r1.fold(
+                onSuccess = { count -> "perId=$count" },
+                onFailure = { e -> "perId=ERR:${e.javaClass.simpleName}" },
+            )
 
-            // (2) Glance updateAll as a redundant guarantee.
-            runCatching { widget.updateAll(context) }
+            // (2) Glance updateAll.
+            val r2 = runCatching { widget.updateAll(context) }
+            val updateAllLabel = if (r2.isSuccess) "updateAll=OK"
+            else "updateAll=ERR:${r2.exceptionOrNull()?.javaClass?.simpleName}"
 
-            // (3) Legacy broadcast path — some OEM launchers respond only to this.
+            // (3) Legacy broadcast path.
             val appWidgetManager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, MySecretaryWidgetReceiver::class.java)
             val ids = runCatching { appWidgetManager.getAppWidgetIds(component) }.getOrNull()
@@ -92,6 +102,7 @@ class MySecretaryWidget : GlanceAppWidget() {
                 }
                 context.sendBroadcast(intent)
             }
+            return "$perIdLabel $updateAllLabel bcast=${ids.size}"
         }
     }
 }

@@ -107,10 +107,23 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    private val _widgetDiagnostic = MutableStateFlow<String?>(null)
+    val widgetDiagnostic: StateFlow<String?> = _widgetDiagnostic.asStateFlow()
+
     fun forceRefreshWidget() {
         viewModelScope.launch {
-            MySecretaryWidget.refresh(context)
+            val now = System.currentTimeMillis()
+            val result = runCatching { MySecretaryWidget.refresh(context) }
+            val elapsed = System.currentTimeMillis() - now
+            _widgetDiagnostic.value = result.fold(
+                onSuccess = { "$it (${elapsed}ms)" },
+                onFailure = { e -> "refresh threw ${e.javaClass.simpleName}: ${e.message}" },
+            )
         }
+    }
+
+    fun clearWidgetDiagnostic() {
+        _widgetDiagnostic.value = null
     }
 
     suspend fun currentWakeWordEnabled(): Boolean = preferences.wakeWordEnabled.first()
