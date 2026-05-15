@@ -79,6 +79,36 @@ class EventRepository @Inject constructor(
         }
     }
 
+    /**
+     * One-shot fetch for a specific date — used by the home-screen widget. Uses suspend DAO
+     * methods rather than Flow.first() so the data is guaranteed to reflect writes that just
+     * committed in the same coroutine context (no dependency on Room's InvalidationTracker
+     * having dispatched yet).
+     */
+    suspend fun getForDate(date: LocalDate, zoneId: ZoneId = ZoneId.systemDefault()): List<Event> {
+        val rangeStart = date.atStartOfDay()
+        val rangeEndExclusive = date.plusDays(1).atStartOfDay()
+        val startMillis = rangeStart.atZone(zoneId).toInstant().toEpochMilli()
+        val endMillis = rangeEndExclusive.atZone(zoneId).toInstant().toEpochMilli()
+
+        val regular = dao.getNonRecurringInRange(startMillis, endMillis)
+        val recurring = dao.getAllRecurring()
+        val expanded = recurring.flatMap { entity ->
+            val base = entity.toDomain(zoneId)
+            val rule = base.rrule?.let { RecurrenceParser.parse(it) } ?: return@flatMap emptyList()
+            val duration = Duration.between(base.start, base.end)
+            RecurrenceExpander.occurrencesInRange(
+                baseStart = base.start,
+                rule = rule,
+                rangeStart = rangeStart,
+                rangeEndExclusive = rangeEndExclusive,
+            ).map { occurrenceStart ->
+                base.copy(start = occurrenceStart, end = occurrenceStart.plus(duration))
+            }
+        }
+        return (regular.map { it.toDomain(zoneId) } + expanded).sortedBy { it.start }
+    }
+
     suspend fun findById(id: Long): Event? = dao.findById(id)?.toDomain()
 
     suspend fun search(keyword: String): List<Event> {

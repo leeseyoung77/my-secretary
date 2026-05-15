@@ -25,6 +25,17 @@ interface EventDao {
     )
     fun observeNonRecurringInRange(rangeStart: Long, rangeEndExclusive: Long): Flow<List<EventEntity>>
 
+    @Query(
+        """
+        SELECT * FROM events
+        WHERE rrule IS NULL
+          AND startEpochMillis < :rangeEndExclusive
+          AND endEpochMillis > :rangeStart
+        ORDER BY startEpochMillis ASC
+        """
+    )
+    suspend fun getNonRecurringInRange(rangeStart: Long, rangeEndExclusive: Long): List<EventEntity>
+
     @Query("SELECT * FROM events WHERE rrule IS NOT NULL ORDER BY startEpochMillis ASC")
     fun observeAllRecurring(): Flow<List<EventEntity>>
 

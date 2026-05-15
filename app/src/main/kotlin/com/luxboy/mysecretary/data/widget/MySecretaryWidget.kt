@@ -51,7 +51,7 @@ class MySecretaryWidget : GlanceAppWidget() {
         val preferences = entryPoint.preferences()
 
         val today = LocalDate.now()
-        val events = repository.observeForDate(today).first()
+        val events = repository.getForDate(today)
         val opacity = preferences.widgetOpacity.first()
 
         provideContent {
