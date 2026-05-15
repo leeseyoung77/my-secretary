@@ -1,0 +1,20 @@
+*.iml
+.gradle
+/local.properties
+/.idea
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build
+.kotlin/
+*.log
+
+# OS / IDE
+Thumbs.db
+*.swp
+
+# Note: release.keystore is intentionally committed (option B in RELEASE.md)
+# Do NOT add it here.
