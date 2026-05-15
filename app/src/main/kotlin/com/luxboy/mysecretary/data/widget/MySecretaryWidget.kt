@@ -14,6 +14,7 @@ import androidx.glance.GlanceTheme
 import androidx.glance.action.actionStartActivity
 import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
+import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.color.ColorProvider
 import androidx.glance.appwidget.cornerRadius
 import androidx.glance.appwidget.provideContent
@@ -61,15 +62,28 @@ class MySecretaryWidget : GlanceAppWidget() {
 
     companion object {
         /**
-         * Forces a fresh widget render. We send an explicit APPWIDGET_UPDATE broadcast in addition
-         * to Glance's [updateAll] because Glance occasionally re-uses cached session state for the
-         * same glanceId — making `updateAll` alone insufficient for visual changes such as opacity.
+         * Forces a fresh widget render. Uses three independent paths in case one is throttled
+         * by the system or cached by Glance: (1) explicit per-id update via GlanceAppWidgetManager
+         * which is the most direct API contract, (2) Glance's updateAll convenience, (3) a manual
+         * APPWIDGET_UPDATE broadcast as a final fallback.
          */
         suspend fun refresh(context: Context) {
+            val widget = MySecretaryWidget()
+
+            // (1) Direct per-id update — most reliable path; bypasses broadcast queues.
+            runCatching {
+                val manager = GlanceAppWidgetManager(context)
+                val glanceIds = manager.getGlanceIds(MySecretaryWidget::class.java)
+                glanceIds.forEach { id -> widget.update(context, id) }
+            }
+
+            // (2) Glance updateAll as a redundant guarantee.
+            runCatching { widget.updateAll(context) }
+
+            // (3) Legacy broadcast path — some OEM launchers respond only to this.
             val appWidgetManager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, MySecretaryWidgetReceiver::class.java)
-            val ids = runCatching { appWidgetManager.getAppWidgetIds(component) }
-                .getOrNull()
+            val ids = runCatching { appWidgetManager.getAppWidgetIds(component) }.getOrNull()
                 ?: IntArray(0)
             if (ids.isNotEmpty()) {
                 val intent = Intent(context, MySecretaryWidgetReceiver::class.java).apply {
@@ -78,8 +92,6 @@ class MySecretaryWidget : GlanceAppWidget() {
                 }
                 context.sendBroadcast(intent)
             }
-            // Belt-and-suspenders: call Glance's updateAll too in case the broadcast path is throttled.
-            runCatching { MySecretaryWidget().updateAll(context) }
         }
     }
 }
@@ -138,13 +150,13 @@ private fun WidgetContent(today: LocalDate, events: List<Event>, opacity: Float)
                         )
                     }
                 } else {
-                    events.take(4).forEach { event ->
+                    events.take(7).forEach { event ->
                         EventLine(event)
                         Spacer(modifier = GlanceModifier.height(4.dp))
                     }
-                    if (events.size > 4) {
+                    if (events.size > 7) {
                         Text(
-                            text = "외 ${events.size - 4}건",
+                            text = "외 ${events.size - 7}건",
                             style = TextStyle(
                                 color = GlanceTheme.colors.onSurfaceVariant,
                                 fontSize = 11.sp,
