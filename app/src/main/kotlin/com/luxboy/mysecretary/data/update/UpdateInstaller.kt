@@ -73,11 +73,14 @@ class UpdateInstaller @Inject constructor(
                     }
                 }
             }
+            // ACTION_DOWNLOAD_COMPLETE is a system broadcast from DownloadManager —
+            // must be RECEIVER_EXPORTED, otherwise Android 14+ silently drops it
+            // and the installer never auto-launches after download.
             ContextCompat.registerReceiver(
                 context,
                 receiver,
                 IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE),
-                ContextCompat.RECEIVER_NOT_EXPORTED,
+                ContextCompat.RECEIVER_EXPORTED,
             )
             cont.invokeOnCancellation {
                 runCatching { context.unregisterReceiver(receiver) }

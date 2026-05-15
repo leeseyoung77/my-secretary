@@ -38,6 +38,7 @@ import com.luxboy.mysecretary.domain.model.Event
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.flow.first
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -54,9 +55,10 @@ class MySecretaryWidget : GlanceAppWidget() {
         val today = LocalDate.now()
         val events = repository.getForDate(today)
         val opacity = preferences.widgetOpacity.first()
+        val nowLabel = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss"))
 
         provideContent {
-            WidgetContent(today = today, events = events, opacity = opacity)
+            WidgetContent(today = today, events = events, opacity = opacity, lastRender = nowLabel)
         }
     }
 
@@ -108,7 +110,7 @@ class MySecretaryWidget : GlanceAppWidget() {
 }
 
 @Composable
-private fun WidgetContent(today: LocalDate, events: List<Event>, opacity: Float) {
+private fun WidgetContent(today: LocalDate, events: List<Event>, opacity: Float, lastRender: String) {
     val alpha = opacity.coerceIn(0.3f, 1f)
     val background = ColorProvider(
         day = Color.White.copy(alpha = alpha),
@@ -138,10 +140,11 @@ private fun WidgetContent(today: LocalDate, events: List<Event>, opacity: Float)
                     )
                     Spacer(modifier = GlanceModifier.defaultWeight())
                     Text(
-                        text = today.format(DateTimeFormatter.ofPattern("M월 d일 (E)", Locale.KOREAN)),
+                        text = today.format(DateTimeFormatter.ofPattern("M월 d일 (E)", Locale.KOREAN)) +
+                            "  ⟳ $lastRender",
                         style = TextStyle(
                             color = GlanceTheme.colors.onSurfaceVariant,
-                            fontSize = 12.sp,
+                            fontSize = 10.sp,
                         ),
                     )
                 }
