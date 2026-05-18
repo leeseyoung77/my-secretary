@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
@@ -94,12 +95,18 @@ class CalendarViewModel @Inject constructor(
                 reminders = listOf(0) // fire at the exact event start time
                 confirmMessage = formatRelativeConfirm(parsed.relativeFromNow)
             } else {
-                start = LocalDateTime.now()
-                    .plusHours(1)
-                    .withMinute(0).withSecond(0).withNano(0)
+                val today = LocalDate.now()
+                start = when {
+                    parsed.time != null -> LocalDateTime.of(parsed.date, parsed.time)
+                    parsed.date == today -> LocalDateTime.now()
+                        .plusHours(1)
+                        .withMinute(0).withSecond(0).withNano(0)
+                    // 날짜만 지정된 경우 기본 오전 9시
+                    else -> LocalDateTime.of(parsed.date, LocalTime.of(9, 0))
+                }
                 title = text.ifBlank { "음성 일정" }
                 reminders = listOf(15)
-                confirmMessage = "등록되었습니다"
+                confirmMessage = formatAbsoluteConfirm(start, today)
             }
 
             val event = Event(
@@ -120,6 +127,26 @@ class CalendarViewModel @Inject constructor(
             if (soundOn) soundFeedbackPlayer.play()
             if (voiceOn) _speakEvents.send(confirmMessage)
         }
+    }
+
+    private fun formatAbsoluteConfirm(start: LocalDateTime, today: LocalDate): String {
+        val date = start.toLocalDate()
+        val dateLabel = when (date) {
+            today -> "오늘"
+            today.plusDays(1) -> "내일"
+            today.plusDays(2) -> "모레"
+            else -> date.format(DateTimeFormatter.ofPattern("M월 d일", Locale.KOREAN))
+        }
+        val time = start.toLocalTime()
+        val ampm = if (time.hour < 12) "오전" else "오후"
+        val hour12 = when {
+            time.hour == 0 -> 12
+            time.hour > 12 -> time.hour - 12
+            else -> time.hour
+        }
+        val timeLabel = if (time.minute == 0) "$ampm ${hour12}시"
+        else "$ampm ${hour12}시 ${time.minute}분"
+        return "$dateLabel $timeLabel 에 등록되었습니다"
     }
 
     private fun formatRelativeConfirm(duration: java.time.Duration): String {
