@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -71,6 +72,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -85,6 +87,11 @@ import com.luxboy.mysecretary.domain.lunar.LunarFormatter
 import com.luxboy.mysecretary.domain.model.CalendarViewMode
 import com.luxboy.mysecretary.domain.model.Contact
 import com.luxboy.mysecretary.domain.model.Event
+import com.luxboy.mysecretary.domain.model.firstDay
+import com.luxboy.mysecretary.domain.model.isMultiDay
+import com.luxboy.mysecretary.domain.model.lastDay
+import com.luxboy.mysecretary.domain.model.overlapsDay
+import com.luxboy.mysecretary.domain.model.overlapsRange
 import com.luxboy.mysecretary.domain.voice.VoiceCommandParser
 import com.luxboy.mysecretary.domain.voice.VoiceIntent
 import com.luxboy.mysecretary.ui.components.AppAlertDialog
@@ -257,6 +264,7 @@ fun CalendarScreen(
                         summaryEnabled = summaryViewEnabled,
                         lunarEnabled = lunarDisplayEnabled,
                         onDateClick = viewModel::selectDate,
+                        onEventClick = onEditEvent,
                     )
                     CalendarViewMode.WEEK -> WeekGrid(
                         weekStart = CalendarViewModel.weekStartOf(visibleAnchor),
@@ -265,6 +273,7 @@ fun CalendarScreen(
                         summaryEnabled = summaryViewEnabled,
                         lunarEnabled = lunarDisplayEnabled,
                         onDateClick = viewModel::selectDate,
+                        onEventClick = onEditEvent,
                     )
                     CalendarViewMode.DAY -> DayTimeline(
                         date = visibleAnchor,
@@ -282,7 +291,7 @@ fun CalendarScreen(
                 HorizontalDivider()
                 DayEventList(
                     date = selectedDate,
-                    events = events.filter { it.start.toLocalDate() == selectedDate },
+                    events = events.filter { it.overlapsDay(selectedDate) }.sortedBy { it.start },
                     onEventClick = onEditEvent,
                 )
             }
@@ -503,6 +512,35 @@ private fun WeekdayHeader() {
     }
 }
 
+private const val MONTH_MAX_LANES = 3
+private const val WEEK_MAX_LANES = 5
+private val LANE_HEIGHT = 16.dp
+
+private data class LaneAssignment(
+    val lanes: List<List<Event>>,
+    val overflow: List<Event>,
+)
+
+private fun assignLanes(events: List<Event>, maxLanes: Int): LaneAssignment {
+    if (events.isEmpty()) return LaneAssignment(emptyList(), emptyList())
+    val sorted = events.sortedWith(
+        compareBy<Event> { it.firstDay }
+            .thenByDescending { it.lastDay }
+            .thenBy { it.start },
+    )
+    val lanes = mutableListOf<MutableList<Event>>()
+    val overflow = mutableListOf<Event>()
+    sorted.forEach { event ->
+        val laneIdx = lanes.indexOfFirst { it.last().lastDay.isBefore(event.firstDay) }
+        when {
+            laneIdx >= 0 -> lanes[laneIdx].add(event)
+            lanes.size < maxLanes -> lanes.add(mutableListOf(event))
+            else -> overflow.add(event)
+        }
+    }
+    return LaneAssignment(lanes, overflow)
+}
+
 @Composable
 private fun MonthGrid(
     month: YearMonth,
@@ -511,44 +549,38 @@ private fun MonthGrid(
     summaryEnabled: Boolean,
     lunarEnabled: Boolean,
     onDateClick: (LocalDate) -> Unit,
+    onEventClick: (Long) -> Unit,
 ) {
-    val firstDay = month.atDay(1)
-    val leadingEmptyDays = (firstDay.dayOfWeek.value % 7)
-    val totalCells = 42
+    val firstDayOfMonth = month.atDay(1)
+    val leadingEmptyDays = firstDayOfMonth.dayOfWeek.value % 7
     val today = LocalDate.now()
-    val eventsByDate = events.groupBy { it.start.toLocalDate() }
+    val gridStart = firstDayOfMonth.minusDays(leadingEmptyDays.toLong())
 
     Column(modifier = Modifier.fillMaxWidth()) {
         for (week in 0 until 6) {
-            Row(modifier = Modifier.fillMaxWidth()) {
-                for (dow in 0 until 7) {
-                    val cellIndex = week * 7 + dow
-                    val dayOfMonth = cellIndex - leadingEmptyDays + 1
-                    if (dayOfMonth in 1..month.lengthOfMonth()) {
-                        val date = month.atDay(dayOfMonth)
-                        DayCell(
-                            modifier = Modifier.weight(1f),
-                            date = date,
-                            isSelected = date == selectedDate,
-                            isToday = date == today,
-                            dayEvents = eventsByDate[date].orEmpty(),
-                            summaryEnabled = summaryEnabled,
-                            summaryMaxLines = MONTH_SUMMARY_LINES,
-                            lunarEnabled = lunarEnabled,
-                            onClick = { onDateClick(date) },
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .then(
-                                    if (summaryEnabled) Modifier.height(summaryCellHeight(MONTH_SUMMARY_LINES))
-                                    else Modifier.aspectRatio(1f)
-                                )
-                        )
-                    }
-                    if (cellIndex >= totalCells - 1) break
-                }
+            val weekStart = gridStart.plusDays(week * 7L)
+            if (summaryEnabled) {
+                SummaryWeekRow(
+                    weekStart = weekStart,
+                    monthFilter = month,
+                    today = today,
+                    selectedDate = selectedDate,
+                    events = events,
+                    maxLanes = MONTH_MAX_LANES,
+                    lunarEnabled = lunarEnabled,
+                    onDateClick = onDateClick,
+                    onEventClick = onEventClick,
+                )
+            } else {
+                CompactWeekRow(
+                    weekStart = weekStart,
+                    monthFilter = month,
+                    today = today,
+                    selectedDate = selectedDate,
+                    events = events,
+                    lunarEnabled = lunarEnabled,
+                    onDateClick = onDateClick,
+                )
             }
         }
     }
@@ -562,31 +594,297 @@ private fun WeekGrid(
     summaryEnabled: Boolean,
     lunarEnabled: Boolean,
     onDateClick: (LocalDate) -> Unit,
+    onEventClick: (Long) -> Unit,
 ) {
     val today = LocalDate.now()
-    val eventsByDate = events.groupBy { it.start.toLocalDate() }
+    if (summaryEnabled) {
+        SummaryWeekRow(
+            weekStart = weekStart,
+            monthFilter = null,
+            today = today,
+            selectedDate = selectedDate,
+            events = events,
+            maxLanes = WEEK_MAX_LANES,
+            lunarEnabled = lunarEnabled,
+            onDateClick = onDateClick,
+            onEventClick = onEventClick,
+        )
+    } else {
+        CompactWeekRow(
+            weekStart = weekStart,
+            monthFilter = null,
+            today = today,
+            selectedDate = selectedDate,
+            events = events,
+            lunarEnabled = lunarEnabled,
+            onDateClick = onDateClick,
+        )
+    }
+}
 
+@Composable
+private fun CompactWeekRow(
+    weekStart: LocalDate,
+    monthFilter: YearMonth?,
+    today: LocalDate,
+    selectedDate: LocalDate,
+    events: List<Event>,
+    lunarEnabled: Boolean,
+    onDateClick: (LocalDate) -> Unit,
+) {
     Row(modifier = Modifier.fillMaxWidth()) {
-        for (offset in 0 until 7) {
-            val date = weekStart.plusDays(offset.toLong())
-            DayCell(
-                modifier = Modifier.weight(1f),
-                date = date,
-                isSelected = date == selectedDate,
-                isToday = date == today,
-                dayEvents = eventsByDate[date].orEmpty(),
-                summaryEnabled = summaryEnabled,
-                summaryMaxLines = WEEK_SUMMARY_LINES,
-                lunarEnabled = lunarEnabled,
-                onClick = { onDateClick(date) },
-            )
+        for (d in 0..6) {
+            val date = weekStart.plusDays(d.toLong())
+            val inFilter = monthFilter == null || YearMonth.from(date) == monthFilter
+            if (inFilter) {
+                DayCell(
+                    modifier = Modifier.weight(1f),
+                    date = date,
+                    isSelected = date == selectedDate,
+                    isToday = date == today,
+                    hasEvents = events.any { it.overlapsDay(date) },
+                    lunarEnabled = lunarEnabled,
+                    onClick = { onDateClick(date) },
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .aspectRatio(1f),
+                )
+            }
         }
     }
 }
 
-private const val MONTH_SUMMARY_LINES = 2
-private const val WEEK_SUMMARY_LINES = 5
-private fun summaryCellHeight(maxLines: Int) = 48.dp + 12.dp * (maxLines + 1)
+@Composable
+private fun SummaryWeekRow(
+    weekStart: LocalDate,
+    monthFilter: YearMonth?,
+    today: LocalDate,
+    selectedDate: LocalDate,
+    events: List<Event>,
+    maxLanes: Int,
+    lunarEnabled: Boolean,
+    onDateClick: (LocalDate) -> Unit,
+    onEventClick: (Long) -> Unit,
+) {
+    val weekEnd = weekStart.plusDays(6)
+    val weekEvents = events.filter { it.overlapsRange(weekStart, weekEnd) }
+    val laneResult = assignLanes(weekEvents, maxLanes)
+
+    val overflowPerDay = IntArray(7)
+    laneResult.overflow.forEach { event ->
+        for (d in 0..6) {
+            if (event.overlapsDay(weekStart.plusDays(d.toLong()))) overflowPerDay[d]++
+        }
+    }
+    val hasOverflow = overflowPerDay.any { it > 0 }
+
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Row(modifier = Modifier.fillMaxWidth()) {
+            for (d in 0..6) {
+                val date = weekStart.plusDays(d.toLong())
+                val inFilter = monthFilter == null || YearMonth.from(date) == monthFilter
+                SummaryDayHeader(
+                    modifier = Modifier.weight(1f),
+                    date = date,
+                    inFilter = inFilter,
+                    isSelected = date == selectedDate,
+                    isToday = date == today,
+                    lunarEnabled = lunarEnabled,
+                    onClick = { onDateClick(date) },
+                )
+            }
+        }
+        for (laneIdx in 0 until maxLanes) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(LANE_HEIGHT),
+            ) {
+                val lane = laneResult.lanes.getOrNull(laneIdx)
+                if (lane != null) {
+                    LaneSegments(lane, weekStart, weekEnd, onEventClick)
+                }
+            }
+            Spacer(modifier = Modifier.height(1.dp))
+        }
+        if (hasOverflow) {
+            Row(modifier = Modifier.fillMaxWidth().height(12.dp)) {
+                for (d in 0..6) {
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        if (overflowPerDay[d] > 0) {
+                            Text(
+                                text = "+${overflowPerDay[d]}",
+                                fontSize = 9.sp,
+                                lineHeight = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.LaneSegments(
+    lane: List<Event>,
+    weekStart: LocalDate,
+    weekEnd: LocalDate,
+    onEventClick: (Long) -> Unit,
+) {
+    var cursor = 0
+    lane.forEach { event ->
+        val rawStart = ChronoUnit.DAYS.between(weekStart, event.firstDay).toInt()
+        val rawEnd = ChronoUnit.DAYS.between(weekStart, event.lastDay).toInt()
+        if (rawEnd < 0 || rawStart > 6) return@forEach
+        val startIdx = rawStart.coerceAtLeast(0)
+        val endIdx = rawEnd.coerceAtMost(6)
+        val gap = startIdx - cursor
+        if (gap > 0) Spacer(modifier = Modifier.weight(gap.toFloat()))
+        val span = endIdx - startIdx + 1
+        EventBar(
+            event = event,
+            span = span,
+            startsHere = !event.firstDay.isBefore(weekStart),
+            endsHere = !event.lastDay.isAfter(weekEnd),
+            onClick = { onEventClick(event.id) },
+        )
+        cursor = endIdx + 1
+    }
+    val trailing = 7 - cursor
+    if (trailing > 0) Spacer(modifier = Modifier.weight(trailing.toFloat()))
+}
+
+@Composable
+private fun RowScope.EventBar(
+    event: Event,
+    span: Int,
+    startsHere: Boolean,
+    endsHere: Boolean,
+    onClick: () -> Unit,
+) {
+    val color = EventCategoryPalette.colorOf(event.colorTag)
+    val shape = RoundedCornerShape(
+        topStart = if (startsHere) 4.dp else 0.dp,
+        bottomStart = if (startsHere) 4.dp else 0.dp,
+        topEnd = if (endsHere) 4.dp else 0.dp,
+        bottomEnd = if (endsHere) 4.dp else 0.dp,
+    )
+    val textColor = if (color.luminance() > 0.6f) Color(0xFF1F2937) else Color.White
+    val displayTitle = event.title.ifBlank { "(제목 없음)" }
+    Box(
+        modifier = Modifier
+            .weight(span.toFloat())
+            .padding(horizontal = 1.dp)
+            .clip(shape)
+            .background(color)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 1.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Text(
+            text = if (startsHere) displayTitle else "… $displayTitle",
+            fontSize = 9.sp,
+            lineHeight = 11.sp,
+            color = textColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+private fun SummaryDayHeader(
+    modifier: Modifier,
+    date: LocalDate,
+    inFilter: Boolean,
+    isSelected: Boolean,
+    isToday: Boolean,
+    lunarEnabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val holidayName = KoreanHolidays.nameOf(date)
+    val isHoliday = holidayName != null
+    val targetBg = when {
+        isSelected -> MaterialTheme.colorScheme.primary
+        isToday -> MaterialTheme.colorScheme.primaryContainer
+        else -> Color.Transparent
+    }
+    val bgColor by animateColorAsState(
+        targetValue = targetBg,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "headerBg",
+    )
+    val scale by animateFloatAsState(
+        targetValue = if (isSelected) 1.06f else 1f,
+        animationSpec = tween(220, easing = FastOutSlowInEasing),
+        label = "headerScale",
+    )
+    val targetTextColor = when {
+        !inFilter -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f)
+        isSelected -> MaterialTheme.colorScheme.onPrimary
+        isToday -> MaterialTheme.colorScheme.onPrimaryContainer
+        isHoliday || date.dayOfWeek == DayOfWeek.SUNDAY -> MaterialTheme.colorScheme.error
+        date.dayOfWeek == DayOfWeek.SATURDAY -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    val textColor by animateColorAsState(
+        targetValue = targetTextColor,
+        animationSpec = tween(220),
+        label = "headerText",
+    )
+
+    Column(
+        modifier = modifier
+            .clickable(onClick = onClick)
+            .padding(top = 4.dp, bottom = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(
+            modifier = Modifier
+                .graphicsLayer { scaleX = scale; scaleY = scale }
+                .clip(CircleShape)
+                .background(bgColor)
+                .padding(horizontal = 9.dp, vertical = 4.dp),
+        ) {
+            Text(
+                text = date.dayOfMonth.toString(),
+                color = textColor,
+                fontSize = 13.sp,
+            )
+        }
+        if (lunarEnabled && inFilter) {
+            LunarFormatter.shortLabel(date)?.let { label ->
+                Text(
+                    text = label,
+                    fontSize = 8.sp,
+                    lineHeight = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 1.dp),
+                )
+            }
+        }
+        if (holidayName != null && inFilter) {
+            Text(
+                text = holidayName,
+                fontSize = 9.sp,
+                lineHeight = 11.sp,
+                color = MaterialTheme.colorScheme.error,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 2.dp, end = 2.dp, top = 1.dp),
+            )
+        }
+    }
+}
 
 @Composable
 private fun DayCell(
@@ -594,15 +892,12 @@ private fun DayCell(
     date: LocalDate,
     isSelected: Boolean,
     isToday: Boolean,
-    dayEvents: List<Event>,
-    summaryEnabled: Boolean,
-    summaryMaxLines: Int,
+    hasEvents: Boolean,
     lunarEnabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val sizeModifier =
-        if (summaryEnabled) Modifier.height(summaryCellHeight(summaryMaxLines)) else Modifier.aspectRatio(1f)
-
+    val holidayName = KoreanHolidays.nameOf(date)
+    val isHoliday = holidayName != null
     val targetBg = when {
         isSelected -> MaterialTheme.colorScheme.primary
         isToday -> MaterialTheme.colorScheme.primaryContainer
@@ -618,8 +913,6 @@ private fun DayCell(
         animationSpec = tween(220, easing = FastOutSlowInEasing),
         label = "dayCellScale",
     )
-    val holidayName = KoreanHolidays.nameOf(date)
-    val isHoliday = holidayName != null
     val targetTextColor = when {
         isSelected -> MaterialTheme.colorScheme.onPrimary
         isToday -> MaterialTheme.colorScheme.onPrimaryContainer
@@ -635,15 +928,13 @@ private fun DayCell(
 
     Box(
         modifier = modifier
-            .then(sizeModifier)
+            .aspectRatio(1f)
             .clickable(onClick = onClick),
-        contentAlignment = if (summaryEnabled) Alignment.TopCenter else Alignment.Center,
+        contentAlignment = Alignment.Center,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = if (summaryEnabled) 4.dp else 0.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
             Box(
                 modifier = Modifier
@@ -652,10 +943,7 @@ private fun DayCell(
                     .background(bgColor)
                     .padding(horizontal = 10.dp, vertical = 6.dp),
             ) {
-                Text(
-                    text = date.dayOfMonth.toString(),
-                    color = textColor,
-                )
+                Text(text = date.dayOfMonth.toString(), color = textColor)
             }
             if (lunarEnabled) {
                 LunarFormatter.shortLabel(date)?.let { label ->
@@ -672,48 +960,7 @@ private fun DayCell(
                     )
                 }
             }
-
-            if (summaryEnabled) {
-                Spacer(modifier = Modifier.height(6.dp))
-                if (holidayName != null) {
-                    Text(
-                        text = holidayName,
-                        fontSize = 9.sp,
-                        lineHeight = 12.sp,
-                        color = MaterialTheme.colorScheme.error,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 2.dp),
-                    )
-                }
-                val remainingLines = (summaryMaxLines - (if (holidayName != null) 1 else 0)).coerceAtLeast(0)
-                dayEvents.take(remainingLines).forEach { event ->
-                    Text(
-                        text = event.title,
-                        fontSize = 9.sp,
-                        lineHeight = 12.sp,
-                        color = EventCategoryPalette.colorOf(event.colorTag),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 2.dp),
-                    )
-                }
-                if (dayEvents.size > remainingLines) {
-                    Text(
-                        text = "외 ${dayEvents.size - remainingLines}건",
-                        fontSize = 9.sp,
-                        lineHeight = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 2.dp),
-                    )
-                }
-            } else if (holidayName != null) {
+            if (holidayName != null) {
                 Text(
                     text = holidayName,
                     fontSize = 9.sp,
@@ -725,22 +972,14 @@ private fun DayCell(
                         .fillMaxWidth()
                         .padding(horizontal = 2.dp, vertical = 1.dp),
                 )
-                if (dayEvents.isNotEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .padding(top = 1.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary)
-                            .padding(3.dp)
-                    )
-                }
-            } else if (dayEvents.isNotEmpty()) {
+            }
+            if (hasEvents) {
                 Box(
                     modifier = Modifier
                         .padding(top = 2.dp)
                         .clip(CircleShape)
                         .background(MaterialTheme.colorScheme.primary)
-                        .padding(3.dp)
+                        .padding(3.dp),
                 )
             }
         }
@@ -843,11 +1082,20 @@ private fun EventRow(event: Event, onClick: () -> Unit) {
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
-                val time = if (event.isAllDay) {
-                    "하루 종일"
-                } else {
-                    val fmt = DateTimeFormatter.ofPattern("HH:mm")
-                    "${event.start.toLocalTime().format(fmt)} - ${event.end.toLocalTime().format(fmt)}"
+                val time = when {
+                    event.isMultiDay && event.isAllDay -> {
+                        val df = DateTimeFormatter.ofPattern("M월 d일")
+                        "${event.firstDay.format(df)} - ${event.lastDay.format(df)} 종일"
+                    }
+                    event.isMultiDay -> {
+                        val df = DateTimeFormatter.ofPattern("M/d HH:mm")
+                        "${event.start.format(df)} - ${event.end.format(df)}"
+                    }
+                    event.isAllDay -> "하루 종일"
+                    else -> {
+                        val fmt = DateTimeFormatter.ofPattern("HH:mm")
+                        "${event.start.toLocalTime().format(fmt)} - ${event.end.toLocalTime().format(fmt)}"
+                    }
                 }
                 Text(
                     text = time,
